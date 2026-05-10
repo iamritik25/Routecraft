@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Virtual environment (local to project folder) ──────────────
+# Everything inside .venv is installed locally — delete the
+# project folder and all packages are gone with it.
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# ── Local env + secrets ────────────────────────────────────────
+# .env.example IS committed (it's a safe template).
+# .env is NOT committed (it may contain real secrets).
+.env
+!.env.example
+
+*.pem
+*.key
+*.crt
+secrets/
+.kaggle/
+kaggle.json
+
+# Logs
+*.log
+logs/
+
+# Project-local scratch
+/tmp/
+scratch/
+output/
+
+# ── Security & Leaks ───────────────────────────────────────────
+*.db-journal
+*.sqlite3
+*.db
+!data/*.json
+!locations.json
+models/*.pkl
+models/*.pt
+models/*.json
+
+# Geocoder cache (auto-generated at runtime)
+services/geocoder_cache.json
+
+# Airflow local state (DB, logs, plugins — all inside project, not global)
+.airflow/
+airflow.db
+airflow-webserver.pid
+
+# DiskCache (pre-built graphs by Airflow — regenerated at runtime)
+.graph_cache/
+.current_weather.json
+

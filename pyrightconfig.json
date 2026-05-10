@@ -1,0 +1,17 @@
+{
+  "extraPaths": [
+    ".",
+    "./services",
+    "./tests"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "none",
+  "exclude": [
+    ".venv",
+    ".airflow",
+    ".graph_cache",
+    "__pycache__"
+  ]
+}

@@ -1,0 +1,45 @@
+# ── Core web framework ─────────────────────────────────────────────────────────
+Flask>=2.2
+flask-cors>=4.0           # CORS headers
+flask-limiter>=3.5        # Rate limiting on /v1/* endpoints
+flask-socketio>=5.3       # WebSocket live route updates
+
+# ── Request validation ─────────────────────────────────────────────────────────
+pydantic>=2.0             # schemas.py — strict JSON validation on all API inputs
+
+# ── Data & ML ──────────────────────────────────────────────────────────────────
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3
+lightgbm>=4.0             # Primary ML backend (traffic_lgbm.pkl)
+joblib>=1.3               # Model serialisation
+torch>=2.1                # PyTorch MLP backend (traffic_mps.pt)
+matplotlib>=3.7           # Feature importance chart
+
+# ── Caching ────────────────────────────────────────────────────────────────────
+redis>=5.0                # Optional — cache_backend.py falls back to dict if unavailable
+
+# ── Resilience ─────────────────────────────────────────────────────────────────
+tenacity>=8.0             # Retry logic (kept for future use; geocoder uses stdlib retry)
+
+# ── MLOps ──────────────────────────────────────────────────────────────────────
+mlflow>=2.10              # Experiment tracking (train_traffic_model.py)
+evidently>=0.4            # Data drift monitoring (drift_monitor.py)
+
+# ── Dataset download ───────────────────────────────────────────────────────────
+kaggle>=1.6               # Download Bangalore traffic dataset
+
+# ── PDF & screenshots ──────────────────────────────────────────────────────────
+fpdf2>=2.7                # make_pdf.py
+selenium>=4.18            # take_screenshots.py
+webdriver-manager>=4.0    # take_screenshots.py — auto ChromeDriver
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+pytest>=7.4
+pytest-cov>=4.1           # Coverage reports (pytest --cov)
+
+# ── Orchestration (Airflow + lightweight scheduler) ────────────────────────────
+# apache-airflow>=2.8     # Full DAG orchestration (install via airflow_setup.bat)
+#                         # Commented out by default — heavy install (~500 MB).
+#                         # Uncomment and run airflow_setup.bat to enable.
+schedule>=1.2             # Lightweight scheduler for cache_warmer.py (no Airflow needed)

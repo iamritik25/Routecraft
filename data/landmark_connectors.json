@@ -1,0 +1,31 @@
+[
+  {
+    "source": "RV College of Engineering",
+    "target": "Kengeri TTMC",
+    "mode": "auto",
+    "distance_km": 4.2,
+    "route_source": "landmark_connector"
+  },
+  {
+    "source": "RV College of Engineering",
+    "target": "Kengeri TTMC",
+    "mode": "cab",
+    "distance_km": 4.2,
+    "route_source": "landmark_connector"
+  },
+  {
+    "source": "RV College of Engineering",
+    "target": "Kengeri TTMC",
+    "mode": "walk",
+    "distance_km": 1.0,
+    "route_source": "landmark_connector"
+  },
+  {
+    "source": "RV College of Engineering",
+    "target": "Banashankari TTMC",
+    "mode": "auto",
+    "distance_km": 9.0,
+    "route_source": "landmark_connector"
+  }
+]
+

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RouteCraft — Bengaluru Multi-Modal Transit Planner</title>
+    <meta name="description" content="Production-grade multi-modal route planner for Bengaluru. Combines cab, auto, BMTC bus, and Namma Metro with ML traffic prediction, surge pricing, and ETA confidence intervals.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <link rel="preconnect" href="https://a.tile.openstreetmap.org" crossorigin>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+
+<header class="appbar">
+    <div class="appbar-inner">
+        <div class="brand">
+            <svg class="brand-logo" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s-8-7.5-8-13a8 8 0 1 1 16 0c0 5.5-8 13-8 13z"/>
+                <circle cx="12" cy="9" r="3"/>
+            </svg>
+            <div class="brand-text">
+                <div class="brand-name">RouteCraft</div>
+                <div class="brand-tagline">Multi-modal transit planner · Bengaluru</div>
+            </div>
+        </div>
+        <nav class="appbar-nav">
+            <span class="nav-chip">Cab · Auto · BMTC · Metro</span>
+            <a href="/health" target="_blank" class="nav-chip nav-chip-link" title="Health endpoint">/health</a>
+            <a href="/metrics" target="_blank" class="nav-chip nav-chip-link" title="Metrics endpoint">/metrics</a>
+        </nav>
+    </div>
+</header>
+
+<main class="app">
+    <aside class="sidebar" id="sidebar">
+        <section class="panel panel-search">
+            <h2 class="panel-title">Plan a trip</h2>
+
+            <div class="field">
+                <label for="source">From</label>
+                <div class="input-wrap">
+                    <svg class="input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="8"/>
+                        <circle cx="12" cy="12" r="3" fill="#34a853"/>
+                    </svg>
+                    <input id="source" list="locationsList" placeholder="Choose starting point" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="destination">To</label>
+                <div class="input-wrap">
+                    <svg class="input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ea4335" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s-7-6.5-7-12a7 7 0 1 1 14 0c0 5.5-7 12-7 12z"/>
+                        <circle cx="12" cy="10" r="2.5" fill="#ea4335"/>
+                    </svg>
+                    <input id="destination" list="locationsList" placeholder="Choose destination" autocomplete="off">
+                </div>
+            </div>
+
+            <datalist id="locationsList">
+                {% for loc in locations %}
+                    <option value="{{ loc }}"></option>
+                {% endfor %}
+            </datalist>
+
+            <div class="field-row">
+                <div class="field">
+                    <label for="preference">Preference</label>
+                    <select id="preference">
+                        <option value="balanced" selected>Balanced</option>
+                        <option value="fastest">Fastest</option>
+                        <option value="cheapest">Cheapest</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="weather">Weather</label>
+                    <select id="weather">
+                        <option value="Clear">☀️ Clear</option>
+                        <option value="Light Rain">🌦️ Light Rain</option>
+                        <option value="Rain">🌧️ Rain</option>
+                        <option value="Heavy Rain">⛈️ Heavy Rain</option>
+                        <option value="Fog">🌫️ Fog</option>
+                        <option value="Windy">💨 Windy</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="hour">Hour (0–23)</label>
+                    <input type="number" id="hour" min="0" max="23" value="9">
+                </div>
+            </div>
+
+            <button id="findRouteBtn" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="7"/>
+                    <path d="m21 21-4.3-4.3"/>
+                </svg>
+                Find routes
+            </button>
+
+            <div id="status" class="status-text"></div>
+        </section>
+
+        <!-- Surge Pricing Banner -->
+        <section id="surgePanel" class="panel panel-surge" hidden></section>
+
+        <!-- ML Status -->
+        <section id="mlStatus" class="panel panel-ml" hidden></section>
+
+        <!-- Results -->
+        <section id="resultsPanel" class="panel panel-results" hidden>
+            <div class="tabs" id="routeTabs" role="tablist"></div>
+            <div id="activeRoute" class="active-route"></div>
+
+            <div class="booking-row">
+                <button id="bookUberBtn" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="7" rx="2"/><circle cx="7" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/><path d="M5 11l2-5h10l2 5"/></svg>
+                    Book Uber
+                </button>
+                <button id="bookBmtcBtn" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="13" rx="2"/><path d="M4 9h16"/><circle cx="8" cy="20" r="1.5"/><circle cx="16" cy="20" r="1.5"/><path d="M8 17v2"/><path d="M16 17v2"/></svg>
+                    BMTC
+                </button>
+                <button id="bookMetroBtn" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="15" rx="4"/><path d="M9 21l3-3 3 3"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="11" r="1"/></svg>
+                    Metro
+                </button>
+            </div>
+        </section>
+
+        <section id="emptyState" class="panel panel-empty">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#9aa0a6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 20l-5-2V4l5 2 6-2 5 2v14l-5-2-6 2z"/>
+                <path d="M9 6v14M15 4v14"/>
+            </svg>
+            <div class="empty-title">Ready when you are</div>
+            <div class="empty-sub">Enter a source and destination, then press <b>Find routes</b>. We'll suggest the best combination of cab, auto, bus and metro — with live surge pricing and ETA confidence bands.</div>
+        </section>
+    </aside>
+
+    <section class="map-panel">
+        <div id="map" class="map-canvas"></div>
+        <div class="map-floating" id="mapFloating" hidden>
+            <div id="routeStats" class="route-stats"></div>
+            <div id="routeSwitcher" class="route-switcher"></div>
+        </div>
+    </section>
+</main>
+
+<script>window.LOCATION_COORDS = {{ location_coords_json|safe }};</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
