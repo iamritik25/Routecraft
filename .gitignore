@@ -65,8 +65,9 @@ models/*.pkl
 models/*.pt
 models/*.json
 
-# Geocoder cache (auto-generated at runtime)
+# Geocoder cache (auto-generated at runtime — not source data)
 services/geocoder_cache.json
+data/geocode_cache.json
 
 # Airflow local state (DB, logs, plugins — all inside project, not global)
 .airflow/
