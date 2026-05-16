@@ -88,14 +88,18 @@ def calculate_segment_time(
     )
 
 
-def calculate_segment_cost(distance_km: float, mode: str, traffic_mult: float, weather_mult: float):
+_COST_ENGINE = None  # Lazy singleton — avoids circular import at module load time
+
+
+def calculate_segment_cost(distance_km: float, mode: str, traffic_mult: float, weather_mult: float) -> float:
     """
     Thin wrapper around CostEngine-style logic.
+    Uses a module-level singleton to avoid recreating the engine on every edge.
     """
-    # Deferred import to avoid circular dependency.
-    from cost_engine import CostEngine
-
-    engine = CostEngine()
-    return engine.cost(mode, distance_km, traffic_mult=traffic_mult, weather_mult=weather_mult)
+    global _COST_ENGINE
+    if _COST_ENGINE is None:
+        from cost_engine import CostEngine  # deferred to break circular import
+        _COST_ENGINE = CostEngine()
+    return _COST_ENGINE.cost(mode, distance_km, traffic_mult=traffic_mult, weather_mult=weather_mult)
 
 

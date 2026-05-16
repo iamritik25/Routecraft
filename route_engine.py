@@ -1,4 +1,5 @@
 import heapq
+import logging as _logging
 from dataclasses import dataclass, field
 from typing import Dict, Tuple, List, Optional, Any
 
@@ -30,8 +31,11 @@ class PathResult:
             self.eta_p50 = bounds.p50_min
             self.eta_p90 = bounds.p90_min
             self.eta_confidence = bounds.confidence
-        except Exception:
-            pass
+        except Exception as exc:
+            # BP-1: log at DEBUG so failures are visible during development
+            _logging.getLogger(__name__).debug(
+                "ETA confidence unavailable: %s", exc
+            )
         return self
 
 

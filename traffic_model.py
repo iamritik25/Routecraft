@@ -13,6 +13,7 @@ A module-level flag `LAST_PREDICTION_USED_ML` is updated after every call so
 the API layer can surface an "ML-predicted" badge to the UI.
 """
 
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -23,36 +24,40 @@ ML_HIT_COUNT: int = 0
 HEURISTIC_COUNT: int = 0
 LAST_ML_BACKEND: Optional[str] = None
 LAST_ML_AREAS: list = []
+_ml_lock = threading.Lock()  # guards all four counters above
 
 
 def _touch_ml_state(area: Optional[str], backend: Optional[str]) -> None:
     global ML_HIT_COUNT, HEURISTIC_COUNT, LAST_ML_BACKEND, LAST_ML_AREAS
-    if area is not None:
-        ML_HIT_COUNT += 1
-        LAST_ML_BACKEND = backend
-        if area not in LAST_ML_AREAS:
-            LAST_ML_AREAS.append(area)
-    else:
-        HEURISTIC_COUNT += 1
+    with _ml_lock:
+        if area is not None:
+            ML_HIT_COUNT += 1
+            LAST_ML_BACKEND = backend
+            if area not in LAST_ML_AREAS:
+                LAST_ML_AREAS.append(area)
+        else:
+            HEURISTIC_COUNT += 1
 
 
 def reset_ml_state() -> None:
     global ML_HIT_COUNT, HEURISTIC_COUNT, LAST_ML_BACKEND, LAST_ML_AREAS
-    ML_HIT_COUNT = 0
-    HEURISTIC_COUNT = 0
-    LAST_ML_BACKEND = None
-    LAST_ML_AREAS = []
+    with _ml_lock:
+        ML_HIT_COUNT = 0
+        HEURISTIC_COUNT = 0
+        LAST_ML_BACKEND = None
+        LAST_ML_AREAS = []
 
 
 def ml_summary() -> dict:
-    """Snapshot the current ML usage counters for API responses."""
-    return {
-        "used": ML_HIT_COUNT > 0,
-        "hits": ML_HIT_COUNT,
-        "heuristic_hits": HEURISTIC_COUNT,
-        "backend": LAST_ML_BACKEND,
-        "areas": list(LAST_ML_AREAS),
-    }
+    """Thread-safe snapshot of the current ML usage counters for API responses."""
+    with _ml_lock:
+        return {
+            "used": ML_HIT_COUNT > 0,
+            "hits": ML_HIT_COUNT,
+            "heuristic_hits": HEURISTIC_COUNT,
+            "backend": LAST_ML_BACKEND,
+            "areas": list(LAST_ML_AREAS),
+        }
 
 
 @dataclass

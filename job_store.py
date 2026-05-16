@@ -44,7 +44,8 @@ class JobStore:
         return job_id
 
     def get(self, job_id: str) -> Optional[Job]:
-        return self._jobs.get(job_id)
+        with self._lock:
+            return self._jobs.get(job_id)
 
     def set_processing(self, job_id: str) -> None:
         with self._lock:

@@ -8,6 +8,7 @@ from cost_engine import CostEngine
 from time_engine import SegmentTimeBreakdown, calculate_segment_time, calculate_segment_cost
 from gtfs_engine import normalize_station_name
 from data_loader import DataLoader
+from logger import get_logger
 from config import (
     MAX_WALK_KM,
     MAX_AUTO_CONNECTOR_KM,
@@ -17,6 +18,8 @@ from config import (
     AIRPORT_RESTRICTED_FINAL_MODES,
 )
 from services.metro_graph_builder import integrate_metro_layer
+
+log = get_logger(__name__)
 
 
 TRANSPORT_SPEED_KMPH = {
@@ -123,12 +126,12 @@ class MultiLayerGraphBuilder:
         bmtc_trips     = bmtc_feed.get("trips", [])
         bmtc_stop_times = bmtc_feed.get("stop_times", [])
         if not bmtc_stops or not bmtc_routes or not bmtc_trips or not bmtc_stop_times:
-            print("[BMTC GTFS] Missing one or more GTFS files in data/bmtc_gtfs; bus graph may be empty.")
+            log.warning("BMTC GTFS missing files",
+                        extra={"dir": BMTC_GTFS_FOLDER, "note": "bus graph may be empty"})
         else:
-            print(
-                f"[BMTC GTFS] Loaded stops={len(bmtc_stops)}, routes={len(bmtc_routes)}, "
-                f"trips={len(bmtc_trips)}, stop_times={len(bmtc_stop_times)}."
-            )
+            log.info("BMTC GTFS loaded",
+                     extra={"stops": len(bmtc_stops), "routes": len(bmtc_routes),
+                            "trips": len(bmtc_trips), "stop_times": len(bmtc_stop_times)})
 
         # ── Proximity mapping: 4433 stops × 69 locations = 305k haversines.
         #    Cache the result keyed by location set hash so it is computed
@@ -140,7 +143,8 @@ class MultiLayerGraphBuilder:
             bmtc_stop_id_to_loc_name: Dict[str, str] = _cached_prox["stop_id_to_loc"]
             bmtc_bus_stops: Set[str]                 = _cached_prox["bus_stops"]
             mapped_stop_name_pairs: List[Tuple[str, str]] = _cached_prox["name_pairs"]
-            print(f"[BMTC GTFS] Proximity mapping: loaded from cache ({len(bmtc_stop_id_to_loc_name)} stops).")
+            log.info("BMTC GTFS proximity mapping: loaded from cache",
+                     extra={"mapped_stops": len(bmtc_stop_id_to_loc_name)})
         else:
             bmtc_stop_id_to_loc_name = {}
             bmtc_bus_stops = set()
@@ -188,11 +192,11 @@ class MultiLayerGraphBuilder:
                 mapped_stop_name_pairs.append((key, loc_name))
 
             _elapsed_prox = _time.perf_counter() - _t0
-            print(
-                f"[BMTC GTFS] Mapped stops to project locations: {len(bmtc_stop_id_to_loc_name)} "
-                f"(by_name={mapped_by_name}, by_proximity={mapped_by_proximity}, "
-                f"skipped unmatched: {skipped_unmapped_bmtc_stops}) in {_elapsed_prox*1000:.0f}ms"
-            )
+            log.info("BMTC GTFS proximity mapping complete",
+                     extra={"mapped": len(bmtc_stop_id_to_loc_name),
+                            "by_name": mapped_by_name, "by_proximity": mapped_by_proximity,
+                            "skipped": skipped_unmapped_bmtc_stops,
+                            "elapsed_ms": round(_elapsed_prox * 1000)})
             _PROXIMITY_CACHE[_prox_key] = {
                 "stop_id_to_loc": bmtc_stop_id_to_loc_name,
                 "bus_stops": bmtc_bus_stops,
@@ -296,7 +300,7 @@ class MultiLayerGraphBuilder:
         # Curated landmark connectors: allow multiple explicit first-mile / last-mile options.
         landmark_connectors = self.data_loader.load_landmark_connectors()
         if landmark_connectors:
-            print(f"[DATA] Loaded {len(landmark_connectors)} landmark connectors.")
+            log.info("Landmark connectors loaded", extra={"count": len(landmark_connectors)})
         for conn in landmark_connectors:
             src = conn.get("source")
             dst = conn.get("target")
@@ -411,11 +415,16 @@ class MultiLayerGraphBuilder:
                 prev = edge_best.get(key)
                 if prev is None or scheduled_time_min < prev[1]:
                     edge_best[key] = (distance_km, scheduled_time_min, route_id)
+                # BUG-7: also store reverse direction — buses are bidirectional in practice
+                key_rev = (dst_name, src_name)
+                prev_rev = edge_best.get(key_rev)
+                if prev_rev is None or scheduled_time_min < prev_rev[1]:
+                    edge_best[key_rev] = (distance_km, scheduled_time_min, route_id)
 
         # Fallback builder: if stop_times is non-sequential (e.g., only one stop per
         # trip), derive coarse bus links from route endpoints in routes.txt.
         if not edge_best and bmtc_routes:
-            print("[BMTC GTFS] stop_times has no usable consecutive pairs. Falling back to route endpoint links.")
+            log.warning("BMTC GTFS stop_times has no usable consecutive pairs; falling back to route endpoint links")
 
             stop_words = {
                 "bus", "station", "stand", "ttmc", "mall", "cross", "circle",
@@ -494,7 +503,7 @@ class MultiLayerGraphBuilder:
                 if k2 not in edge_best:
                     edge_best[k2] = (dist_km, est_time_min, route_id)
                     fallback_added += 1
-            print(f"[BMTC GTFS] Fallback endpoint edges added: {fallback_added}")
+            log.info("BMTC GTFS fallback endpoint edges added", extra={"count": fallback_added})
 
         for (src_name, dst_name), (distance_km, scheduled_time_min, route_id) in edge_best.items():
             cost = calculate_segment_cost(
@@ -521,7 +530,7 @@ class MultiLayerGraphBuilder:
                     route_id=route_id,
                 )
             )
-        print(f"[BMTC GTFS] Integrated directed bus edges: {len(edge_best)}")
+        log.info("BMTC GTFS directed bus edges integrated", extra={"count": len(edge_best)})
 
         # Transfer edges: connect metro stations to nearby bus hubs via walking.
         # This enables bus ↔ metro multimodal routing.
@@ -576,7 +585,7 @@ class MultiLayerGraphBuilder:
                         )
                     )
                     transfer_count += 2
-            print(f"[TRANSFER] Added walk transfers between metro and bus: {transfer_count}")
+            log.info("Walk transfers added between metro and bus", extra={"count": transfer_count})
 
         # Add mode-switching edges at each location (same location, different mode)
         for name in coord_map:

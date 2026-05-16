@@ -78,8 +78,10 @@ import traffic_model as _traffic_model
 try:
     from disk_cache import DiskCache as _DiskCache
     _DISK_CACHE = _DiskCache(os.path.join(os.path.dirname(__file__), ".graph_cache"))
-    log_tmp = get_logger(__name__)
-except Exception:
+except Exception as _dc_exc:
+    # BP-1: log the failure so it doesn't silently vanish
+    import logging as _logging
+    _logging.getLogger(__name__).warning("DiskCache init failed; running without T2 cache: %s", _dc_exc)
     _DISK_CACHE = None
 
 log = get_logger(__name__)
@@ -108,6 +110,7 @@ _REQUEST_COUNT = 0
 _TOTAL_RESPONSE_MS = 0.0
 _TOTAL_EDGE_COUNT = 0
 _ML_EDGE_COUNT = 0
+_METRICS_LOCK = threading.Lock()  # BUG-3: guards all five counters above
 
 _GRAPH_CACHE = get_graph_cache()
 _JOB_STORE = get_job_store()
@@ -135,7 +138,13 @@ def create_app() -> Flask:
 
     # ── WebSocket ──────────────────────────────────────────────────────────
     if _SOCKETIO_AVAILABLE:
-        socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+        # SEC-3: restrict CORS to configured origins; never use "*" in production
+        _cors_origins = [
+            o.strip()
+            for o in os.environ.get("CORS_ORIGINS", "http://localhost:5000").split(",")
+            if o.strip()
+        ]
+        socketio = SocketIO(app, cors_allowed_origins=_cors_origins, async_mode="threading")
 
         @socketio.on("subscribe_route")
         def on_subscribe(data: dict) -> None:
@@ -154,6 +163,9 @@ def create_app() -> Flask:
     geocoder = NominatimGeocoder()
     locations = data_loader.load_locations()
     alias_map = data_loader.load_aliases()
+
+    # PERF-2: build resolver once at startup — not on every request (it reads CSV from disk)
+    resolver = PlaceResolver(locations=locations, alias_map=alias_map, base_dir=".")
 
     name_to_coord: Dict[str, Tuple[float, float]] = {
         loc["name"]: (loc["lat"], loc["lon"]) for loc in locations
@@ -254,7 +266,6 @@ def create_app() -> Flask:
             if not res.path:
                 return [], []
             summarized: List[Dict] = []
-            display = [res.path[0][0]]
             for i, edge in enumerate(res.edges):
                 fl, fm = res.path[i]
                 tl, tm = res.path[i + 1]
@@ -275,9 +286,8 @@ def create_app() -> Flask:
                     "is_switch": is_switch, "description": edge.description,
                     "time_min": round(edge.time_min, 1), "cost": round(edge.cost, 1),
                 })
-                if display[-1] != tl:
-                    display.append(tl)
 
+            # BUG-6: display list built once here (removed dead first-pass build inside the loop above)
             display = [res.path[0][0]]
             for item in summarized:
                 tl = item.get("to_loc") or ""
@@ -339,7 +349,7 @@ def create_app() -> Flask:
         session_id = payload.get("session_id")
         backend = get_model_backend(session_id)
 
-        resolver = PlaceResolver(locations=locations, alias_map=alias_map, base_dir=".")
+        # resolver is created once at startup (closure over create_app scope)
         resolved_source = resolver.resolve(raw_source)
         resolved_destination = resolver.resolve(raw_destination)
 
@@ -389,10 +399,11 @@ def create_app() -> Flask:
 
             preferred_key = {"cheapest": "cheapest", "fastest": "fastest", "balanced": "balanced"}.get(preference, "balanced")
 
-            # Track metrics
+            # Track metrics — guarded by _METRICS_LOCK to prevent race between threads
             ml_sum = _traffic_model.ml_summary()
-            _TOTAL_EDGE_COUNT += ml_sum.get("hits", 0) + ml_sum.get("heuristic_hits", 0)
-            _ML_EDGE_COUNT += ml_sum.get("hits", 0)
+            with _METRICS_LOCK:
+                _TOTAL_EDGE_COUNT += ml_sum.get("hits", 0) + ml_sum.get("heuristic_hits", 0)
+                _ML_EDGE_COUNT += ml_sum.get("hits", 0)
 
             response = {
                 "cheapest": _serialize(routes["cheapest"], "Cheapest Route"),
@@ -450,8 +461,9 @@ def create_app() -> Flask:
             }
 
         elapsed_ms = (time.time() - t0) * 1000
-        _REQUEST_COUNT += 1
-        _TOTAL_RESPONSE_MS += elapsed_ms
+        with _METRICS_LOCK:  # BUG-3: atomic update of shared counters
+            _REQUEST_COUNT += 1
+            _TOTAL_RESPONSE_MS += elapsed_ms
         log.info("Route computed", extra={"source": source, "destination": destination,
                                           "backend": backend, "elapsed_ms": round(elapsed_ms, 1)})
         return response, 200
@@ -545,7 +557,9 @@ def create_app() -> Flask:
                 if _GRAPH_CACHE.get(key) is not None:
                     # Force next request to re-read from DiskCache
                     try:
-                        _GRAPH_CACHE._store.pop(key, None)  # type: ignore[attr-defined]
+                        # BUG-5: the attribute is _local / _local_ts, not _store
+                        _GRAPH_CACHE._local.pop(key, None)
+                        _GRAPH_CACHE._local_ts.pop(key, None)
                         evicted += 1
                     except Exception:
                         pass
@@ -581,6 +595,12 @@ def create_app() -> Flask:
     # ── Metrics ───────────────────────────────────────────────────────────
     @app.route("/metrics")
     def metrics() -> Any:
+        # SEC-2: protect operational metrics behind an API key or localhost check
+        _admin_key = os.environ.get("ADMIN_API_KEY", "")
+        if request.remote_addr not in ("127.0.0.1", "::1"):
+            provided = request.headers.get("X-Admin-Key", "")
+            if not _admin_key or provided != _admin_key:
+                return jsonify({"error": "forbidden"}), 403
         return jsonify({
             "total_requests": _REQUEST_COUNT,
             "cache_hits": _GRAPH_CACHE.hit_count,

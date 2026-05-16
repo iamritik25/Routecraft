@@ -54,8 +54,10 @@ class CacheBackend:
                     return pickle.loads(raw)
                 self._miss_count += 1
                 return None
-            except Exception:
-                pass  # fall through to local
+            except Exception as exc:
+                # BP-1: log Redis errors so they don't vanish silently
+                log.warning("Redis get failed; falling through to local cache",
+                            extra={"key": k, "error": str(exc)})
         entry = self._local.get(k)
         if entry is None:
             self._miss_count += 1

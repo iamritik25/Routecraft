@@ -430,7 +430,11 @@ class TrafficPredictor:
             self._available = True
             return
         except Exception as exc:
-            pass  # fall through to next backend
+            # BP-1: log the failure reason — silent pass hides real problems
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "[traffic_ml] Primary model load failed (%s): %s", self.model_type, exc
+            )
 
         # LightGBM failed → try sklearn GBM first (pure Python, no torch dependency)
         if self.model_type not in ("mps_nn", "sklearn"):
@@ -438,10 +442,14 @@ class TrafficPredictor:
                 self._load_sklearn()
                 self.model_type = "sklearn"
                 self._available = True
-                print("[traffic_ml] LightGBM unavailable; switched to scikit-learn GBM backend.")
+                import logging as _log
+                _log.getLogger(__name__).info(
+                    "[traffic_ml] LightGBM unavailable; switched to scikit-learn GBM backend."
+                )
                 return
             except Exception as exc2:
-                print(f"[traffic_ml] sklearn load failed: {exc2}")
+                import logging as _log
+                _log.getLogger(__name__).warning("[traffic_ml] sklearn load failed: %s", exc2)
 
         # sklearn also failed → try PyTorch MLP
         if self.model_type not in ("mps_nn", "sklearn"):
@@ -449,13 +457,18 @@ class TrafficPredictor:
                 self._load_mps()
                 self.model_type = "mps_nn"
                 self._available = True
-                print("[traffic_ml] Switched to PyTorch MLP backend.")
+                import logging as _log
+                _log.getLogger(__name__).info("[traffic_ml] Switched to PyTorch MLP backend.")
                 return
-            except Exception:
-                pass
+            except Exception as exc3:
+                import logging as _log
+                _log.getLogger(__name__).warning("[traffic_ml] MPS/PyTorch load failed: %s", exc3)
 
         self._available = False
-        print("[traffic_ml] No ML model available — using heuristic fallback.")
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "[traffic_ml] No ML model available — using heuristic fallback."
+        )
 
 
 
@@ -664,8 +677,8 @@ class TrafficPredictor:
             weather=weather or "Clear",
             day_of_week=dow,
             month=mo,
-            road=road_name,
-            roadwork_flag=roadwork_flag
+            road=None,        # road name not available at this call site
+            roadwork_flag=0,  # roadwork data not available at this call site
         )
         if tti is None:
             return None
